@@ -1,5 +1,6 @@
 import * as React from 'react';
 import debounce from 'lodash/debounce';
+import { createClient } from 'contentful-management';
 import { render } from 'react-dom';
 import { init, locations, AppExtensionSDK, SidebarExtensionSDK } from '@contentful/app-sdk';
 import '@contentful/forma-36-react-components/dist/styles.css';
@@ -41,19 +42,19 @@ export class SidebarExtension extends React.Component<
     });
 
     this.props.sdk.entry.onSysChanged(
-      debounce(() => {
-        this.setState(this.getEntryStateFields());
+      debounce(async () => {
+        this.setState(await this.getEntryStateFields());
       }, 500)
     );
   }
 
-  getEntryStateFields() {
-    const { entry, contentType, parameters } = this.props.sdk;
+  async getEntryStateFields() {
+    const { cmaAdapter, entry, contentType, parameters } = this.props.sdk;
+    const cma = createClient({ apiAdapter: cmaAdapter });
     const contentTypeParams = (parameters.installation as SavedParams).contentTypes[
       contentType.sys.id
     ];
     const contentTypeName = contentType.name;
-
     if (!contentTypeParams) {
       return { isContentTypeConfigured: false, hasSlug: false, pagePath: '', contentTypeName };
     }
@@ -61,7 +62,20 @@ export class SidebarExtension extends React.Component<
     const { urlPrefix, slugField } = contentTypeParams;
     const hasSlug = slugField in entry.fields;
 
-    const pagePath = hasSlug ? `${urlPrefix || ''}${entry.fields[slugField].getValue() || ''}` : '';
+    let categorySlug = '';
+
+    if (contentTypeName === 'Guide') {
+      const categoryData = entry.fields['category'].getValue();
+      const space = await cma.getSpace(this.props.sdk.ids.space);
+      const env = await space.getEnvironment(this.props.sdk.ids.environment);
+      const categoryEntry = await env.getEntry(categoryData.sys.id);
+      categorySlug = categoryEntry.fields.slug['en-US'] + '/';
+    }
+
+    const originalSlugValue = entry.fields[slugField].getValue();
+    const slugValue = originalSlugValue === 'index' ? '' : originalSlugValue + '/';
+
+    const pagePath = hasSlug ? `${urlPrefix || ''}${categorySlug || ''}${slugValue || ''}` : '';
 
     return {
       isContentTypeConfigured: true,
@@ -72,8 +86,14 @@ export class SidebarExtension extends React.Component<
   }
 
   render() {
-    const { isAuthorized, isContentTypeConfigured, pagePath, hasSlug, contentTypeName, helpText } =
-      this.state;
+    const {
+      isAuthorized,
+      isContentTypeConfigured,
+      pagePath,
+      hasSlug,
+      contentTypeName,
+      helpText,
+    } = this.state;
     const { parameters, entry, notifier } = this.props.sdk;
     const { clientId, viewId } = parameters.installation as SavedParams;
 
@@ -186,7 +206,7 @@ init((sdk) => {
     render(
       <SidebarExtension
         sdk={sdk as SidebarExtensionSDK}
-        gapi={(window as unknown as { gapi: Gapi }).gapi}
+        gapi={((window as unknown) as { gapi: Gapi }).gapi}
       />,
       document.getElementById('root')
     );
