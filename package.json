@@ -26,5 +26,8 @@
     "*.{t,j}s?(x)": [
       "prettier --write"
     ]
+  },
+  "volta": {
+    "node": "14.18.0"
   }
 }
